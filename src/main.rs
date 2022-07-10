@@ -4,6 +4,7 @@ use regex::Regex;
 use std::{fmt::Display, collections::HashSet};
 
 mod args;
+mod index;
 mod parser;
 mod requests;
 
@@ -39,7 +40,7 @@ async fn main() {
 async fn index_url(url: &str) -> Result<HashSet<String>, Error> {
 	let content = requests::get(url).await?;
 	let document = Document::parse(&content, url);
-	println!("TAGS {}: {:#?}", url, document.tags);
+	index::create_indices(url, &document.tags);
 	Ok(document.links)
 }
 
