@@ -78,7 +78,7 @@ fn parse_meta(source: &str) -> HashSet<String> {
 	res
 }
 
-fn parse_tags(source: &str) -> HashSet<String> {
+pub fn parse_tags(source: &str) -> HashSet<String> {
 	let mut tags = HashSet::new();
 	let inner_text = REG_INNER_TEXT.find_iter(source);
 	for m in inner_text {

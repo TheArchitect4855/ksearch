@@ -1,3 +1,4 @@
+use args::Arguments;
 use lazy_static::lazy_static;
 use parser::Document;
 use regex::Regex;
@@ -16,17 +17,31 @@ pub struct Error(String);
 
 #[tokio::main]
 async fn main() {
-	if cfg!(debug_assertions) {
-		println!("[DEBUG] DELETING ALL INDEXED PAGES");
-		rusqlite::Connection::open("index.db")
-			.expect("Couldn't open DB")
-			.execute("DELETE FROM pages", rusqlite::params![])
-			.expect("Failed to delete pages");
-		std::fs::remove_dir_all("indices").expect("Failed to delete indices");
-	}
-
 	let arguments = args::parse();
-	if let Some(url) = arguments.get_positional::<String>(1) {
+	if let Some(command) = arguments.get_positional::<String>(1) {
+		if command == "index" {
+			if cfg!(debug_assertions) {
+				println!("[DEBUG] DELETING ALL INDEXED PAGES");
+				rusqlite::Connection::open("index.db")
+					.expect("Couldn't open DB")
+					.execute("DELETE FROM pages", rusqlite::params![])
+					.expect("Failed to delete pages");
+				std::fs::remove_dir_all("indices").expect("Failed to delete indices");
+			}
+
+			index(&arguments).await;
+		} else if command == "query" {
+			query(&arguments).await;
+		} else {
+			eprintln!("Invalid command {}", command);
+		}
+	} else {
+		eprintln!("Usage: {} [command]", arguments.get_positional::<String>(0).unwrap());
+	}
+}
+
+async fn index(arguments: &Arguments) {
+	if let Some(url) = arguments.get_positional::<String>(2) {
 		let mut queue = VecDeque::with_capacity(512);
 		queue.push_back(url);
 
@@ -55,6 +70,18 @@ async fn index_url(url: &str) -> Result<HashSet<String>, Error> {
 	Ok(document.links)
 }
 
+async fn query(args: &Arguments) {
+	let q: String = if let Some(v) = args.get_positional::<String>(2) {
+		v.to_lowercase()
+	} else {
+		eprintln!("Usage: {} query [query string]", args.get_positional::<String>(0).unwrap());
+		return;
+	};
+
+	let tags = parser::parse_tags(&q);
+	let pages = index::get_pages_matching(&tags);
+	println!("Pages: {:#?}", pages);
+}
 
 impl Error {
 	pub fn from<T: ToString>(v: T) -> Self {
