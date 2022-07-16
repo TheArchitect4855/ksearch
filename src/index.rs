@@ -24,11 +24,14 @@ pub fn create_indices(url: &str, tags: &HashSet<String>) {
 		.expect("Failed to get current time")
 		.as_secs();
 	
-	conn.execute("
+	if let Err(e) = conn.execute("
 		INSERT INTO pages (
 			protocol, host, pathname, last_indexed
 		) VALUES (?, ?, ?, ?)
-	", params![ protocol, host, pathname, now ]).expect("Failed to index page");
+	", params![ protocol, host, pathname, now ]) {
+		eprintln!("Failed to index {}: {}", url, e);
+		return;
+	}
 
 	let page_id: u64 = conn.query_row("
 		SELECT id
