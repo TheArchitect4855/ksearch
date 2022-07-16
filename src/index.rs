@@ -86,7 +86,7 @@ pub fn get_pages_matching(tags: &HashSet<String>) -> Box<[String]> {
 		}
 	}
 
-	let page_ids: Vec<u64> = tag_counts.keys().filter(|v| tag_counts.get(*v).unwrap() > &0).map(|v| *v).collect();
+	let page_ids: Vec<u64> = tag_counts.keys().map(|v| *v).collect();
 	let set = page_ids.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(",");
 	let conn = Connection::open("index.db").expect("Failed to open database");
 	let mut select = conn.prepare(&format!("
