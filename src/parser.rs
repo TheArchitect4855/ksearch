@@ -8,7 +8,7 @@ lazy_static!{ static ref REG_META: Regex = Regex::new(r"<meta.+?>").unwrap(); }
 lazy_static!{ static ref REG_META_CONTENT: Regex = Regex::new("content=\"(.*)\"").unwrap(); }
 lazy_static!{ static ref REG_WORDS: Regex = Regex::new(r"\w+").unwrap(); }
 lazy_static!{ static ref REG_URL: Regex = Regex::new(r"https?://[A-Za-z0-9-._~:/?#&\[\]@!$'()*+,;=%]+").unwrap(); }
-lazy_static!{ static ref REG_LINK: Regex = Regex::new(r"\.?/[A-Za-z0-9-._~:/?&@!$+=%]+(\s*>)?").unwrap(); }
+lazy_static!{ static ref REG_LINK: Regex = Regex::new(r"/[A-Za-z0-9-._~:/?&@!$+=%]+(\s*>)?").unwrap(); }
 
 #[derive(Debug)]
 pub struct Document {
@@ -40,7 +40,6 @@ fn parse_links(source: &str, url: &str) -> HashSet<String> {
 	let url_parse = crate::REG_URL_PARSE.captures(url).expect("Invalid URL passed to parse_links");
 	let protocol = &url_parse[1];
 	let host = &url_parse[2];
-	let pathname = url_parse.get(3).map(|v| v.as_str()).unwrap_or("/");
 
 	let mut res = HashSet::new();
 	let urls = REG_URL.find_iter(source);
@@ -55,17 +54,7 @@ fn parse_links(source: &str, url: &str) -> HashSet<String> {
 			continue;
 		}
 
-		if ls.starts_with(".") {
-			let pref = format!("{}://{}{}", protocol, host, pathname);
-			let post = &ls[1..];
-			if pref.ends_with(post) {
-				continue;
-			}
-
-			res.insert(format!("{}{}", pref, post));
-		} else {
-			res.insert(format!("{}://{}{}", protocol, host, ls));
-		}
+		res.insert(format!("{}://{}{}", protocol, host, ls));
 	}
 
 	res

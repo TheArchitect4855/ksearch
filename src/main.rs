@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use parser::Document;
 use regex::Regex;
-use std::{fmt::Display, collections::HashSet};
+use std::{fmt::Display, collections::{HashSet, VecDeque}};
 
 mod args;
 mod index;
@@ -16,11 +16,22 @@ pub struct Error(String);
 
 #[tokio::main]
 async fn main() {
+	if cfg!(debug_assertions) {
+		println!("[DEBUG] DELETING ALL INDEXED PAGES");
+		rusqlite::Connection::open("index.db")
+			.expect("Couldn't open DB")
+			.execute("DELETE FROM pages", rusqlite::params![])
+			.expect("Failed to delete pages");
+		std::fs::remove_dir_all("indices").expect("Failed to delete indices");
+	}
+
 	let arguments = args::parse();
 	if let Some(url) = arguments.get_positional::<String>(1) {
-		let mut queue = vec![url];
+		let mut queue = VecDeque::with_capacity(512);
+		queue.push_back(url);
+
 		let mut history = HashSet::new();
-		while let Some(url) = queue.pop() {
+		while let Some(url) = queue.pop_front() {
 			if history.contains(&url) {
 				continue;
 			}
