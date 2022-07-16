@@ -44,7 +44,12 @@ fn parse_links(source: &str, url: &str) -> HashSet<String> {
 	let mut res = HashSet::new();
 	let urls = REG_URL.find_iter(source);
 	for u in urls {
-		res.insert(u.as_str().to_owned());
+		let ustr = u.as_str();
+		if ustr.ends_with("/") {
+			res.insert(ustr[..ustr.len() - 1].to_owned());
+		} else {
+			res.insert(ustr.to_owned());
+		}
 	}
 
 	let links = REG_LINK.find_iter(source);
@@ -54,7 +59,11 @@ fn parse_links(source: &str, url: &str) -> HashSet<String> {
 			continue;
 		}
 
-		res.insert(format!("{}://{}{}", protocol, host, ls));
+		if ls.ends_with("/") {
+			res.insert(format!("{}://{}{}", protocol, host, &ls[..ls.len() - 1]));
+		} else {
+			res.insert(format!("{}://{}{}", protocol, host, ls));
+		}
 	}
 
 	res
