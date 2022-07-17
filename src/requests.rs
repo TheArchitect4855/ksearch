@@ -1,5 +1,5 @@
 use crate::Error;
-use reqwest::Client;
+use reqwest::{ Client, redirect };
 
 pub async fn get(url: &str) -> Result<String, Error> {
 	if !crate::REG_URL_VALIDATE.is_match(url) {
@@ -8,6 +8,7 @@ pub async fn get(url: &str) -> Result<String, Error> {
 
 	let client = Client::builder()
 		.danger_accept_invalid_certs(true)
+		.redirect(redirect::Policy::none())
 		.user_agent("ksearch-bot")
 		.build()
 		.expect("Failed to create client");
