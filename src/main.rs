@@ -110,7 +110,10 @@ async fn query(args: &Arguments) {
 
 	let tags = parser::parse_tags(&q);
 	let pages = index::query(&tags);
-	println!("Pages: {:#?}", pages);
+	println!("{} results:", pages.len());
+	for p in pages.iter() {
+		println!("{}", p);
+	}
 }
 
 impl Error {

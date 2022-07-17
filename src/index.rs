@@ -1,11 +1,18 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io::{Write, Read};
 use std::{collections::HashSet, path::PathBuf};
 use std::time;
 use std::fs;
 use rusqlite::{Connection, params};
 use sha2::{Sha256, Digest};
+
+pub struct QueryResult {
+	pub url: String,
+	pub rank: u64,
+	pub hits: usize,
+}
 
 pub fn create_indices(url: &str, tags: &HashSet<String>) -> Result<u64, crate::Error> {
 	let matches = crate::REG_URL_PARSE.captures(url)
@@ -62,7 +69,7 @@ pub fn create_index(page_id: u64, tag: &str) {
 	file.write_all(&buf).expect("Failed to write to output file");
 }
 
-pub fn query(tags: &HashSet<String>) -> Box<[String]> {
+pub fn query(tags: &HashSet<String>) -> Box<[QueryResult]> {
 	let conn = Connection::open("index.db").expect("Failed to open database");
 	let mut get_rank = conn.prepare("
 		SELECT COUNT(*)
@@ -118,20 +125,24 @@ pub fn query(tags: &HashSet<String>) -> Box<[String]> {
 		
 		let a_rank = *page_ranks.get(&a.0).unwrap();
 		let b_rank = *page_ranks.get(&b.0).unwrap();
-		if a_tags > b_tags {
+		if a_tags < b_tags {
 			Ordering::Greater
-		} else if a_tags < b_tags {
+		} else if a_tags > b_tags {
 			Ordering::Less
-		} else if a_rank > b_rank {
-			Ordering::Greater
 		} else if a_rank < b_rank {
+			Ordering::Greater
+		} else if a_rank > b_rank {
 			Ordering::Less
 		} else {
 			Ordering::Equal
 		}
 	});
 
-	rows.iter().map(|v| v.1.clone()).collect::<Vec<String>>().into_boxed_slice()
+	rows.iter().map(|v| QueryResult {
+		url: v.1.to_owned(),
+		rank: *page_ranks.get(&v.0).unwrap(),
+		hits: *tag_counts.get(&v.0).unwrap(),
+	}).collect::<Vec<QueryResult>>().into_boxed_slice()
 }
 
 fn get_tag_index(tag: &str) -> PathBuf {
@@ -160,4 +171,10 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 	}
 
 	buf
+}
+
+impl Display for QueryResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (rank {}, {} hits)", self.url, self.rank, self.hits)
+    }
 }
