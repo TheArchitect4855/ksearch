@@ -7,7 +7,7 @@ use std::fs;
 use rusqlite::{Connection, params};
 use sha2::{Sha256, Digest};
 
-pub fn create_indices(url: &str, tags: &HashSet<String>) {
+pub fn create_indices(url: &str, tags: &HashSet<String>) -> Result<u64, crate::Error> {
 	let matches = crate::REG_URL_PARSE.captures(url)
 		.expect("Invalid URL passed to create_indices");
 	
@@ -31,8 +31,7 @@ pub fn create_indices(url: &str, tags: &HashSet<String>) {
 			protocol, host, pathname, last_indexed
 		) VALUES (?, ?, ?, ?)
 	", params![ protocol, host, pathname, now ]) {
-		eprintln!("Failed to index {}: {}", url, e);
-		return;
+		return Err(crate::Error::from(e));
 	}
 
 	let page_id: u64 = conn.query_row("
@@ -47,6 +46,8 @@ pub fn create_indices(url: &str, tags: &HashSet<String>) {
 	for t in tags.iter() {
 		create_index(page_id, t);
 	}
+
+	Ok(page_id)
 }
 
 pub fn create_index(page_id: u64, tag: &str) {
@@ -62,7 +63,15 @@ pub fn create_index(page_id: u64, tag: &str) {
 }
 
 pub fn get_pages_matching(tags: &HashSet<String>) -> Box<[String]> {
+	let conn = Connection::open("index.db").expect("Failed to open database");
+	let mut get_rank = conn.prepare("
+		SELECT COUNT(*)
+		FROM links
+		WHERE to = ?
+	").unwrap();
+
 	let mut tag_counts: HashMap<u64, usize> = HashMap::new();
+	let mut page_ranks: HashMap<u64, u64> = HashMap::new();
 	for tag in tags {
 		let index = get_tag_index(tag);
 		let mut file = match fs::File::options()
@@ -82,6 +91,10 @@ pub fn get_pages_matching(tags: &HashSet<String>) -> Box<[String]> {
 				*tag_counts.get_mut(&page_id).unwrap() += 1;
 			} else {
 				tag_counts.insert(page_id, 1);
+				let rank = get_rank.query_row(params![ page_id ], |r| r.get::<usize, u64>(0))
+					.unwrap_or(0);
+				
+				page_ranks.insert(page_id, rank);
 			}
 		}
 	}
@@ -100,11 +113,19 @@ pub fn get_pages_matching(tags: &HashSet<String>) -> Box<[String]> {
 	}).unwrap().map(|v| v.unwrap()).collect::<Vec<(u64, String)>>();
 
 	rows.sort_by(|a, b| {
-		let ord = *tag_counts.get(&b.0).unwrap() as isize - *tag_counts.get(&a.0).unwrap() as isize;
-		if ord < 0 {
-			Ordering::Less
-		} else if ord > 0 {
+		let a_tags = *tag_counts.get(&a.0).unwrap();
+		let b_tags = *tag_counts.get(&b.0).unwrap();
+		
+		let a_rank = *page_ranks.get(&a.0).unwrap();
+		let b_rank = *page_ranks.get(&b.0).unwrap();
+		if a_tags > b_tags {
 			Ordering::Greater
+		} else if a_tags < b_tags {
+			Ordering::Less
+		} else if a_rank > b_rank {
+			Ordering::Greater
+		} else if a_rank < b_rank {
+			Ordering::Less
 		} else {
 			Ordering::Equal
 		}

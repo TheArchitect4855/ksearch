@@ -2,6 +2,7 @@ use args::Arguments;
 use lazy_static::lazy_static;
 use parser::Document;
 use regex::Regex;
+use rusqlite::{Connection, params};
 use std::{fmt::Display, collections::{HashSet, VecDeque}};
 
 mod args;
@@ -14,6 +15,12 @@ lazy_static!{ pub static ref REG_URL_PARSE: Regex = Regex::new(r"(https?)://([A-
 
 #[derive(Debug)]
 pub struct Error(String);
+
+#[derive(Clone)]
+pub struct Link {
+	pub from_id: Option<u64>,
+	pub to_url: String,
+}
 
 #[tokio::main]
 async fn main() {
@@ -43,31 +50,54 @@ async fn main() {
 async fn index(arguments: &Arguments) {
 	if let Some(url) = arguments.get_positional::<String>(2) {
 		let mut queue = VecDeque::with_capacity(512);
-		queue.push_back(url);
+		queue.push_back(Link {
+			from_id: None,
+			to_url: url,
+		});
 
 		let mut history = HashSet::new();
-		while let Some(url) = queue.pop_front() {
-			if history.contains(&url) {
+		while let Some(link) = queue.pop_front() {
+			if history.contains(&link.to_url) {
 				continue;
 			}
 
-			match index_url(&url).await {
-				Ok(v) => queue.extend(v),
-				Err(e) => eprintln!("Error indexing {}: {}", url, e),
+			match index_url(&link).await {
+				Ok(v) => queue.extend(v.iter().map(|v| v.clone())),
+				Err(e) => eprintln!("Error indexing {}: {}", link.to_url, e),
 			};
 
-			history.insert(url);
+			history.insert(link.to_url);
 		}
 	} else {
 		println!("Usage: {} [url]", arguments.get_positional::<String>(0).unwrap());
 	}
 }
 
-async fn index_url(url: &str) -> Result<HashSet<String>, Error> {
-	let content = requests::get(url).await?;
-	let document = Document::parse(&content, url);
-	index::create_indices(url, &document.tags);
-	Ok(document.links)
+async fn index_url(link: &Link) -> Result<Box<[Link]>, Error> {
+	println!("Indexing {}...", link.to_url);
+
+	let content = requests::get(&link.to_url).await?;
+	let document = Document::parse(&content, &link.to_url);
+	let page_id = index::create_indices(&link.to_url, &document.tags)?;
+
+	if let Some(from_id) = link.from_id {
+		let conn = Connection::open("index.db").expect("Failed to open database");
+		if let Err(e) = conn.execute("
+			INSERT INTO links (`from`, `to`)
+			VALUES (?, ?)
+		", params![ from_id, page_id ]) {
+			eprintln!("Failed to create link: {}", e);
+		}
+	}
+
+	let links: Vec<Link> = document.links.iter().map(
+		|v| Link {
+			from_id: Some(page_id),
+			to_url: v.to_string(),
+		}
+	).collect();
+
+	Ok(links.into_boxed_slice())
 }
 
 async fn query(args: &Arguments) {
