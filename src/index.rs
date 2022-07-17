@@ -62,12 +62,12 @@ pub fn create_index(page_id: u64, tag: &str) {
 	file.write_all(&buf).expect("Failed to write to output file");
 }
 
-pub fn get_pages_matching(tags: &HashSet<String>) -> Box<[String]> {
+pub fn query(tags: &HashSet<String>) -> Box<[String]> {
 	let conn = Connection::open("index.db").expect("Failed to open database");
 	let mut get_rank = conn.prepare("
 		SELECT COUNT(*)
 		FROM links
-		WHERE to = ?
+		WHERE `to` = ?
 	").unwrap();
 
 	let mut tag_counts: HashMap<u64, usize> = HashMap::new();

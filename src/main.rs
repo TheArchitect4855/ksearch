@@ -109,7 +109,7 @@ async fn query(args: &Arguments) {
 	};
 
 	let tags = parser::parse_tags(&q);
-	let pages = index::get_pages_matching(&tags);
+	let pages = index::query(&tags);
 	println!("Pages: {:#?}", pages);
 }
 
