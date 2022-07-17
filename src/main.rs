@@ -3,12 +3,13 @@ use lazy_static::lazy_static;
 use parser::Document;
 use regex::Regex;
 use rusqlite::{Connection, params};
-use std::{fmt::Display, collections::{HashSet, VecDeque, HashMap}};
+use std::{fmt::Display, collections::{VecDeque, HashMap}};
 
 mod args;
 mod index;
 mod parser;
 mod requests;
+mod stopwords;
 
 lazy_static!{ pub static ref REG_URL_VALIDATE: Regex = Regex::new(r"^https?://[A-Za-z0-9-._~:/?#&\[\]@!$'()*+,;=%]+$").unwrap(); }
 lazy_static!{ pub static ref REG_URL_PARSE: Regex = Regex::new(r"(https?)://([A-Za-z0-9-._~:\[\]@!$'()*+,;=%]+)(/[A-Za-z0-9-._~:/\[\]@!$'()*+,;=?#&%]+)?").unwrap(); }
@@ -129,8 +130,10 @@ async fn query(args: &Arguments) {
 
 	let tags = parser::parse_tags(&q);
 	let pages = index::query(&tags);
-	println!("Showing 10/{} results:", pages.len());
-	for p in pages[..10].iter() {
+	let mlen = pages.len().min(10);
+
+	println!("Showing {}/{} results:", mlen, pages.len());
+	for p in pages[..mlen].iter() {
 		println!("{}", p);
 	}
 }

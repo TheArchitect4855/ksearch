@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use lazy_static::lazy_static;
 use regex::Regex;
+use crate::stopwords;
 
 lazy_static!{ static ref REG_INNER_TEXT: Regex = Regex::new(r"\w+").unwrap(); }
 lazy_static!{ static ref REG_STRIP_SPECIALS: Regex = Regex::new(r"[^\s\w]+").unwrap(); }
@@ -100,6 +101,10 @@ pub fn parse_tags(source: &str) -> HashSet<String> {
 		let text = REG_STRIP_SPECIALS.replace_all(&text, "");
 		let words = REG_WORDS.find_iter(&text);
 		for w in words {
+			if !stopwords::filter_stopwords(w.as_str()) {
+				continue;
+			}
+
 			tags.insert(w.as_str().to_owned());
 		}
 	}
