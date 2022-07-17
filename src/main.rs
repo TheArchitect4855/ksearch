@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use parser::Document;
 use regex::Regex;
 use rusqlite::{Connection, params};
-use std::{fmt::Display, collections::{HashSet, VecDeque}};
+use std::{fmt::Display, collections::{HashSet, VecDeque, HashMap}};
 
 mod args;
 mod index;
@@ -33,7 +33,10 @@ async fn main() {
 					.expect("Couldn't open DB")
 					.execute("DELETE FROM pages", rusqlite::params![])
 					.expect("Failed to delete pages");
-				std::fs::remove_dir_all("indices").expect("Failed to delete indices");
+				
+				if let Err(e) = std::fs::remove_dir_all("indices") {
+					eprintln!("Failed to delete indices: {}", e);
+				}
 			}
 
 			index(&arguments).await;
@@ -55,25 +58,41 @@ async fn index(arguments: &Arguments) {
 			to_url: url,
 		});
 
-		let mut history = HashSet::new();
+		let mut history = HashMap::new();
 		while let Some(link) = queue.pop_front() {
-			if history.contains(&link.to_url) {
+			if history.contains_key(&link.to_url) {
+				if let Some(page_id) = history.get(&link.to_url).unwrap() {
+					if let Some(from_id) = link.from_id {
+						let conn = Connection::open("index.db").expect("Failed to open database");
+						if let Err(e) = conn.execute("
+							INSERT INTO links (`from`, `to`)
+							VALUES (?, ?)
+						", params![ from_id, page_id ]) {
+							eprintln!("Failed to create link: {}", e);
+						}
+					}
+				}
+
 				continue;
 			}
 
+			let mut page_id = None;
 			match index_url(&link).await {
-				Ok(v) => queue.extend(v.iter().map(|v| v.clone())),
+				Ok(v) => {
+					page_id = Some(v.0);
+					queue.extend(v.1.iter().map(|v| v.clone()))
+				},
 				Err(e) => eprintln!("Error indexing {}: {}", link.to_url, e),
 			};
 
-			history.insert(link.to_url);
+			history.insert(link.to_url, page_id);
 		}
 	} else {
 		println!("Usage: {} [url]", arguments.get_positional::<String>(0).unwrap());
 	}
 }
 
-async fn index_url(link: &Link) -> Result<Box<[Link]>, Error> {
+async fn index_url(link: &Link) -> Result<(u64, Box<[Link]>), Error> {
 	println!("Indexing {}...", link.to_url);
 
 	let content = requests::get(&link.to_url).await?;
@@ -97,7 +116,7 @@ async fn index_url(link: &Link) -> Result<Box<[Link]>, Error> {
 		}
 	).collect();
 
-	Ok(links.into_boxed_slice())
+	Ok((page_id, links.into_boxed_slice()))
 }
 
 async fn query(args: &Arguments) {
@@ -110,8 +129,8 @@ async fn query(args: &Arguments) {
 
 	let tags = parser::parse_tags(&q);
 	let pages = index::query(&tags);
-	println!("{} results:", pages.len());
-	for p in pages.iter() {
+	println!("Showing 10/{} results:", pages.len());
+	for p in pages[..10].iter() {
 		println!("{}", p);
 	}
 }
