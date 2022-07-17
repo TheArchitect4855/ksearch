@@ -8,7 +8,7 @@ pub async fn get(url: &str) -> Result<String, Error> {
 
 	let client = Client::builder()
 		.danger_accept_invalid_certs(true)
-		.redirect(redirect::Policy::none())
+		// .redirect(redirect::Policy::none())
 		.user_agent("ksearch-bot")
 		.build()
 		.expect("Failed to create client");
