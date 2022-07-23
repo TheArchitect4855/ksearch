@@ -1,5 +1,5 @@
 use crate::Error;
-use reqwest::{ Client, redirect };
+use reqwest::Client;
 
 pub async fn get(url: &str) -> Result<String, Error> {
 	if !crate::REG_URL_VALIDATE.is_match(url) {
