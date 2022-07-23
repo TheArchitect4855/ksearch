@@ -19,7 +19,12 @@ pub struct Document {
 
 impl Document {
 	pub fn parse(source: &str, url: &str) -> Self {
-		let line_stripped = source
+		let text = match htmlescape::decode_html(source) {
+			Ok(v) => v,
+			Err(_) => source.to_owned(),
+		};
+
+		let line_stripped = text
 			.to_lowercase()
 			.replace("\r", " ")
 			.replace("\n", " ");
@@ -92,12 +97,7 @@ pub fn parse_tags(source: &str) -> HashSet<String> {
 	let mut tags = HashSet::new();
 	let inner_text = REG_INNER_TEXT.find_iter(source);
 	for m in inner_text {
-		let text = m.as_str();
-		let text = match htmlescape::decode_html(text) {
-			Ok(v) => v,
-			Err(_) => text.to_owned(),
-		};
-
+		let text = m.as_str().to_owned();
 		let text = REG_STRIP_SPECIALS.replace_all(&text, "");
 		let words = REG_WORDS.find_iter(&text);
 		for w in words {

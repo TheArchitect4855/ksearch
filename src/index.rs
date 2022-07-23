@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::io::{Write, Read, Seek, SeekFrom};
+use std::io::{Write, Read, ErrorKind};
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
 use std::time;
@@ -94,65 +94,33 @@ pub fn create_index(page_id: u64, tag: &str) {
 		.open(&indices)
 		.expect("Failed to open output file");
 	
-	let mut write_to = 0;
-	let mut file_size = 0;
 	if exists {
-		let meta = file.metadata().expect("Failed to get file metadata");
-		file_size = meta.len();
-		let num_indices = file_size / 8;
-
-		let mut seek_to = num_indices / 2;
-		let mut partition = (0, num_indices);
-		let mut buffer = [0; 8];
-		write_to = loop {
-			file.seek(SeekFrom::Start(seek_to * 8)).expect("Failed to seek file");
-			file.read_exact(&mut buffer).expect("Failed to read from file");
-			
-			let pid = u64::from_be_bytes(buffer);
-			if pid > page_id && partition.1 != seek_to {
-				// Seek back
-				partition.1 = seek_to;
-			} else if pid < page_id && partition.0 != seek_to {
-				// Seek forwards
-				partition.0 = seek_to;
-			} else if pid == page_id {
-				// If we find our page ID, then this is already indexed
-				return;
-			}
-
-			if partition.0 + 1 == partition.1 {
-				println!("partition: {:?}\tpid: {}\tpage_id: {}", partition, pid, page_id);
-				if pid > page_id {
-					break partition.0;
+		// TODO: Order these and do binary search
+		let mut buf = [0; 8];
+		let is_indexed = loop {
+			if let Err(e) = file.read_exact(&mut buf) {
+				if e.kind() == ErrorKind::UnexpectedEof {
+					break false;
 				} else {
-					break partition.1;
+					panic!("Failed to read index: {}", e);
 				}
 			}
+			
+			let n = u64::from_be_bytes(buf);
+			if n == page_id {
+				break true;
+			}
+		};
 
-			let min = partition.1 - partition.0;
-			seek_to = (min / 2) + partition.0;
-		} * 8;
-	}
-
-	if file_size == 0 {
+		if !is_indexed {
+			let buf = page_id.to_be_bytes();
+			file.write_all(&buf).expect("Failed to write index");
+		}
+	} else {
 		let buf = page_id.to_be_bytes();
 		file.write_all(&buf).expect("Failed to write index");
-		return;
 	}
-
-	file.seek(SeekFrom::Start(write_to)).expect("Failed to seek file");
-	let mut ahead = [0; 8];
-	let mut write = page_id.to_be_bytes();
-	while write_to < file_size {
-		file.seek(SeekFrom::Start(write_to)).expect("Failed to seek file");
-		file.read_exact(&mut ahead).expect("Failed to read index");
-		file.seek(SeekFrom::Current(-8)).expect("Failed to seek file");
-		file.write_all(&write).expect("Failed to write index");
-		write = ahead;
-		write_to += 8;
-	}
-
-	file.write_all(&write).expect("Failed to write index");
+	
 	if cfg!(debug_assertions) {
 		validate_index(&indices);
 	}
@@ -236,15 +204,15 @@ pub fn query(tags: &HashSet<String>) -> Box<[QueryResult]> {
 
 pub fn validate_index(path: &Path) {
 	let mut file = fs::File::open(path).expect("Failed to open index");
-	let mut last = 0;
+	let mut set = HashSet::new();
 	let mut buf = [0; 8];
 	while let Ok(_) = file.read_exact(&mut buf) {
 		let n = u64::from_be_bytes(buf);
-		if last >= n {
-			panic!("Index validation failed");
+		if set.contains(&n) {
+			panic!("Index failed validation (has duplicates)");
 		}
 
-		last = n;
+		set.insert(n);
 	}
 }
 
