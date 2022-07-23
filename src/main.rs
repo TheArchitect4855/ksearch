@@ -28,18 +28,6 @@ async fn main() {
 	let arguments = args::parse();
 	if let Some(command) = arguments.get_positional::<String>(1) {
 		if command == "index" {
-			if cfg!(debug_assertions) {
-				println!("[DEBUG] DELETING ALL INDEXED PAGES");
-				rusqlite::Connection::open("index.db")
-					.expect("Couldn't open DB")
-					.execute("DELETE FROM pages", rusqlite::params![])
-					.expect("Failed to delete pages");
-				
-				if let Err(e) = std::fs::remove_dir_all("indices") {
-					eprintln!("Failed to delete indices: {}", e);
-				}
-			}
-
 			index(&arguments).await;
 		} else if command == "query" {
 			query(&arguments).await;

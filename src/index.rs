@@ -6,7 +6,7 @@ use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
 use std::time;
 use std::fs;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, OptionalExtension};
 use sha2::{Sha256, Digest};
 
 pub struct QueryResult {
@@ -28,28 +28,54 @@ pub fn create_indices(url: &str, tags: &HashSet<String>) -> Result<u64, crate::E
 	let conn = Connection::open("index.db")
 		.expect("Failed to open database");
 	
-	// TODO: Reindexing pages
 	let now = time::SystemTime::now()
 		.duration_since(time::UNIX_EPOCH)
 		.expect("Failed to get current time")
 		.as_secs();
-	
-	if let Err(e) = conn.execute("
-		INSERT INTO pages (
-			protocol, host, pathname, last_indexed
-		) VALUES (?, ?, ?, ?)
-	", params![ protocol, host, pathname, now ]) {
-		return Err(crate::Error::from(e));
+
+	let mut content_hash = Sha256::new();
+	for tag in tags {
+		content_hash.update(tag);
 	}
 
-	let page_id: u64 = conn.query_row("
+	let content_hash = bytes_to_hex(&content_hash.finalize());
+	let page_id: Option<u64> = conn.query_row("
 		SELECT id
-			FROM pages
+		FROM pages
 		WHERE protocol = ?
 			AND host = ?
 			AND pathname = ?
-	", params![ protocol, host, pathname ], |row| row.get(0))
-	.expect("Failed to select page ID");
+			OR content_hash = ?
+	", params![ protocol, host, pathname, content_hash ], |row| row.get(0))
+		.optional()
+		.expect("Failed to select page ID");
+	
+	let page_id = if let Some(page_id) = page_id {
+		conn.execute("
+			UPDATE pages
+			SET last_indexed = ?
+			WHERE id = ?
+		", params![ now, page_id ])
+		.expect("Failed to update page data");
+
+		page_id
+	} else {
+		conn.execute("
+			INSERT INTO pages (
+				protocol, host, pathname, last_indexed, content_hash
+			) VALUES (?, ?, ?, ?, ?)
+		", params![ protocol, host, pathname, now, content_hash	 ])
+		.expect("Failed to insert page data");
+
+		conn.query_row("
+			SELECT id
+				FROM pages
+			WHERE protocol = ?
+				AND host = ?
+				AND pathname = ?
+		", params![ protocol, host, pathname ], |row| row.get(0))
+		.expect("Failed to select page ID")
+	};
 
 	for t in tags.iter() {
 		create_index(page_id, t);
@@ -95,12 +121,17 @@ pub fn create_index(page_id: u64, tag: &str) {
 			}
 
 			if partition.0 + 1 == partition.1 {
-				break partition.1 * 8;
+				println!("partition: {:?}\tpid: {}\tpage_id: {}", partition, pid, page_id);
+				if pid > page_id {
+					break partition.0;
+				} else {
+					break partition.1;
+				}
 			}
 
 			let min = partition.1 - partition.0;
 			seek_to = (min / 2) + partition.0;
-		};
+		} * 8;
 	}
 
 	if file_size == 0 {
@@ -113,6 +144,7 @@ pub fn create_index(page_id: u64, tag: &str) {
 	let mut ahead = [0; 8];
 	let mut write = page_id.to_be_bytes();
 	while write_to < file_size {
+		file.seek(SeekFrom::Start(write_to)).expect("Failed to seek file");
 		file.read_exact(&mut ahead).expect("Failed to read index");
 		file.seek(SeekFrom::Current(-8)).expect("Failed to seek file");
 		file.write_all(&write).expect("Failed to write index");
